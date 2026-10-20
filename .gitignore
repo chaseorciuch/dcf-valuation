@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Virtual environment
+.venv/
+venv/
+
+# Generated reports
+output/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
