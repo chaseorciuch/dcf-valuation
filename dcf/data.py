@@ -24,6 +24,7 @@ class CompanyData:
     tax_rate: float
     risk_free_rate: float
     currency: str = "USD"
+    analyst_growth: float | None = None  # consensus revenue growth, next fiscal year
 
 
 def _row(df: pd.DataFrame | None, labels: list[str]) -> pd.Series | None:
@@ -60,6 +61,27 @@ def get_risk_free_rate() -> float:
     except Exception:
         pass
     return DEFAULT_RISK_FREE
+
+
+def get_analyst_growth(ticker: str) -> float | None:
+    """Consensus revenue growth from Yahoo's analyst estimates.
+
+    Uses next fiscal year (+1y) if available, otherwise the current year (0y).
+    """
+    import yfinance as yf
+
+    try:
+        est = yf.Ticker(ticker).revenue_estimate
+        if est is None or est.empty or "growth" not in est.columns:
+            return None
+        for period in ("+1y", "0y"):
+            if period in est.index:
+                g = pd.to_numeric(est.loc[period, "growth"], errors="coerce")
+                if pd.notna(g):
+                    return float(g)
+    except Exception:
+        pass
+    return None
 
 
 def fetch_company_data(ticker: str) -> CompanyData:
@@ -130,4 +152,5 @@ def fetch_company_data(ticker: str) -> CompanyData:
         tax_rate=tax_rate,
         risk_free_rate=get_risk_free_rate(),
         currency=info.get("currency") or "USD",
+        analyst_growth=get_analyst_growth(ticker),
     )

@@ -27,7 +27,7 @@ def wacc_vs_terminal_growth(data: CompanyData, a: Assumptions, result: DCFResult
                 continue
             v, _ = value_per_share(result.base_fcf, result.initial_growth, g, w,
                                    a.projection_years, data.total_debt, data.cash,
-                                   data.shares_outstanding)
+                                   data.shares_outstanding, a.hold_years)
             table.loc[w, g] = v
     table.index.name = "WACC"
     table.columns.name = "Terminal growth"
@@ -48,7 +48,7 @@ def wacc_vs_initial_growth(data: CompanyData, a: Assumptions, result: DCFResult,
                 continue
             v, _ = value_per_share(result.base_fcf, g, a.terminal_growth, w,
                                    a.projection_years, data.total_debt, data.cash,
-                                   data.shares_outstanding)
+                                   data.shares_outstanding, a.hold_years)
             table.loc[w, g] = v
     table.index.name = "WACC"
     table.columns.name = "Initial growth"

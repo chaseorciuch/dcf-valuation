@@ -30,7 +30,18 @@ def fake_company(**overrides) -> CompanyData:
 
 
 def test_growth_estimate_is_revenue_cagr():
-    assert estimate_initial_growth(fake_company()) == pytest.approx(0.10)
+    g, source = estimate_initial_growth(fake_company())
+    assert g == pytest.approx(0.10)
+    assert source == "historical revenue CAGR"
+
+
+def test_analyst_growth_preferred_and_capped():
+    g, source = estimate_initial_growth(fake_company(analyst_growth=0.25))
+    assert (g, source) == (pytest.approx(0.25), "analyst estimate")
+    g, _ = estimate_initial_growth(fake_company(analyst_growth=0.90))
+    assert g == pytest.approx(0.40)
+    g, _ = estimate_initial_growth(fake_company(analyst_growth=0.25), use_analyst=False)
+    assert g == pytest.approx(0.10)
 
 
 def test_growth_fades_to_terminal():
@@ -39,10 +50,19 @@ def test_growth_fades_to_terminal():
     assert path[-1] == pytest.approx(0.02)
 
 
+def test_growth_held_then_fades():
+    path = growth_path(0.20, 0.02, 10, hold_years=3)
+    assert len(path) == 10
+    assert list(path[:3]) == [0.20, 0.20, 0.20]
+    assert path[3] < 0.20 and path[-1] == pytest.approx(0.02)
+    assert all(path[i] >= path[i + 1] for i in range(9))
+
+
 def test_dcf_matches_hand_calculation():
     # 2-year projection, fixed 10% WACC, growth 10% -> 2%, base FCF 100
     data = fake_company()
-    a = Assumptions(projection_years=2, initial_growth=0.10, terminal_growth=0.02, wacc=0.10)
+    a = Assumptions(projection_years=2, hold_years=0, initial_growth=0.10,
+                    terminal_growth=0.02, wacc=0.10)
     r = run_dcf(data, a)
 
     fcf1, fcf2 = 110.0, 110.0 * 1.02
@@ -56,11 +76,27 @@ def test_dcf_matches_hand_calculation():
 
 def test_capm_wacc():
     data = fake_company()
-    r = run_dcf(data, Assumptions(equity_risk_premium=0.05))
+    r = run_dcf(data, Assumptions(equity_risk_premium=0.05, adjust_beta=False))
     ke = 0.04 + 1.2 * 0.05
     kd = (0.04 + 0.015) * (1 - 0.21)
     we, wd = 5000 / 5200, 200 / 5200
     assert r.wacc == pytest.approx(we * ke + wd * kd)
+
+    adj = run_dcf(data, Assumptions(equity_risk_premium=0.05))
+    assert adj.wacc_breakdown.beta_used == pytest.approx(0.67 * 1.2 + 0.33)
+
+
+def test_reverse_dcf_round_trip():
+    data = fake_company()
+    a = Assumptions(wacc=0.09)
+    r = run_dcf(data, a)
+    # Set the price equal to the model's value: implied growth must equal the input growth
+    data2 = fake_company(price=r.value_per_share)
+    r2 = run_dcf(data2, a)
+    assert r2.implied_growth == pytest.approx(r.initial_growth, abs=1e-6)
+    # A higher price must imply higher growth
+    r3 = run_dcf(fake_company(price=r.value_per_share * 2), a)
+    assert r3.implied_growth > r.initial_growth
 
 
 def test_negative_fcf_raises():

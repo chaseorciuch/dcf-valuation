@@ -35,13 +35,15 @@ def print_summary(data: CompanyData, a: Assumptions, r: DCFResult,
 
     print("\nKey assumptions")
     print(f"  Starting unlevered FCF   {_money(r.base_fcf)} {data.currency}")
-    print(f"  Initial growth (yr 1)    {r.initial_growth:.2%}  -> fades to terminal")
+    print(f"  Initial growth           {r.initial_growth:.2%}  ({r.growth_source})")
+    print(f"  Growth path              held {a.hold_years} yrs, then fades to terminal by yr "
+          f"{a.projection_years}")
     print(f"  Terminal growth          {a.terminal_growth:.2%}")
-    print(f"  Projection years         {a.projection_years}")
     if r.wacc_breakdown:
         w = r.wacc_breakdown
         print(f"  Risk-free rate           {data.risk_free_rate:.2%}")
-        print(f"  Beta                     {data.beta:.2f}")
+        beta_note = " (Blume-adjusted)" if a.adjust_beta else ""
+        print(f"  Beta                     {data.beta:.2f} raw -> {w.beta_used:.2f} used{beta_note}")
         print(f"  Cost of equity (CAPM)    {w.cost_of_equity:.2%}")
         print(f"  After-tax cost of debt   {w.after_tax_cost_of_debt:.2%}")
         print(f"  Weights (E / D)          {w.weight_equity:.0%} / {w.weight_debt:.0%}")
@@ -69,6 +71,17 @@ def print_summary(data: CompanyData, a: Assumptions, r: DCFResult,
     print(f"\n  Intrinsic value / share  {r.value_per_share:,.2f} {data.currency}")
     print(f"  Current price            {data.price:,.2f} {data.currency}")
     print(f"  Upside / (downside)      {r.upside:+.1%}  -> model says {verdict}")
+
+    print("\nReverse DCF: what is the market pricing in?")
+    if r.implied_growth is not None:
+        print(f"  To justify {data.price:,.2f}, FCF must grow ~{r.implied_growth:.1%} a year for "
+              f"{a.hold_years} yrs, then fade to {a.terminal_growth:.1%} by yr {a.projection_years}.")
+        print(f"  Your assumption: {r.initial_growth:.1%}. Ask yourself which is more realistic.")
+    else:
+        print("  No growth rate between -20% and 100% justifies the current price "
+              "(check the WACC and starting FCF).")
+    print(f"  Market EV / FCF today    {r.market_ev_to_fcf:,.1f}x")
+    print(f"  Model's exit EV / FCF    {r.terminal_ev_to_fcf:,.1f}x  (multiple the terminal value implies)")
 
     print("\nSensitivity: value per share (rows = WACC, columns = terminal growth)")
     print(_pct_table(sens_tg).round(2).to_string())
@@ -99,14 +112,20 @@ def write_excel(path: Path, data: CompanyData, a: Assumptions, r: DCFResult,
         ("Enterprise value", r.enterprise_value),
         ("Equity value", r.equity_value),
         ("PV of terminal value % of EV", r.terminal_share_of_ev),
+        ("Implied growth (reverse DCF)", r.implied_growth if r.implied_growth is not None else "n/a"),
+        ("Market EV / FCF", r.market_ev_to_fcf),
+        ("Model exit EV / FCF", r.terminal_ev_to_fcf),
         ("", ""),
         ("Starting unlevered FCF", r.base_fcf),
         ("Initial growth", r.initial_growth),
+        ("Growth source", r.growth_source),
+        ("Years growth is held", a.hold_years),
         ("Terminal growth", a.terminal_growth),
         ("Projection years", a.projection_years),
         ("WACC", r.wacc),
         ("Risk-free rate", data.risk_free_rate),
-        ("Beta", data.beta),
+        ("Beta (raw)", data.beta),
+        ("Beta (used)", r.wacc_breakdown.beta_used if r.wacc_breakdown else "n/a"),
         ("Equity risk premium", a.equity_risk_premium),
         ("Tax rate", data.tax_rate),
         ("Total debt", data.total_debt),
@@ -158,6 +177,7 @@ def write_excel(path: Path, data: CompanyData, a: Assumptions, r: DCFResult,
 
         ws = xw.sheets["Summary"]
         pct_rows = {"Upside / (downside)", "PV of terminal value % of EV", "Initial growth",
+                    "Implied growth (reverse DCF)",
                     "Terminal growth", "WACC", "Risk-free rate", "Equity risk premium", "Tax rate"}
         for row in ws.iter_rows(min_row=2):
             label, val = row[0].value, row[1]

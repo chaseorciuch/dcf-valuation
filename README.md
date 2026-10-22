@@ -11,7 +11,18 @@ Outputs:
 - An Excel workbook with Summary, Projections, History and two sensitivity sheets (green = above current price, red = below)
 - Two heatmap charts: **WACC vs terminal growth** and **WACC vs initial growth**
 
-Data comes free from Yahoo Finance via [`yfinance`](https://github.com/ranaroussi/yfinance). No API key needed.
+## Data sources
+
+| `--source` | What you need | Notes |
+|---|---|---|
+| `yahoo` (default) | Nothing | Free, via [`yfinance`](https://github.com/ranaroussi/yfinance) |
+| `factset` | A FactSet API key | Fundamentals API (annual statements) + Prices API (price, 5-yr monthly beta vs SPY). 10-yr Treasury still from Yahoo. |
+
+### Setting up FactSet
+
+1. Sign in at [developer.factset.com](https://developer.factset.com) and create an API key (look for **Manage API keys**). Your account must be entitled to the *FactSet Fundamentals* and *FactSet Prices* APIs. A desktop/workstation-only license is not enough.
+2. Copy `.env.example` to `.env` and fill in `FACTSET_USERNAME` (your USERNAME-SERIAL) and `FACTSET_API_KEY`. `.env` is git-ignored, so the key stays on your computer.
+3. Run `python main.py AAPL --source factset`. Tickers default to the US listing (`AAPL` → `AAPL-US`); pass a suffix for other markets, e.g. `VOD-GB`.
 
 ## Setup
 
@@ -34,8 +45,11 @@ python main.py NKE --base-fcf-years 3                # smooth a lumpy cash-flow 
 
 | Flag | Default | Meaning |
 |---|---|---|
-| `--years` | 5 | Projection years |
-| `--growth` | historical revenue CAGR (clipped -5%..20%) | Year-1 FCF growth; fades linearly to terminal growth |
+| `--years` | 10 | Projection years |
+| `--hold-years` | 3 | Years the initial growth is held before fading to terminal growth |
+| `--growth` | analyst revenue estimate, else historical CAGR (capped at 40%) | Initial FCF growth |
+| `--no-analyst` | – | Ignore analyst estimates, use historical growth |
+| `--raw-beta` | – | Use raw beta instead of Blume-adjusted (0.67 × raw + 0.33) |
 | `--terminal-growth` | 0.025 | Perpetual growth after the projection period |
 | `--wacc` | computed | Override the discount rate |
 | `--erp` | 0.055 | Equity risk premium for CAPM |
@@ -49,7 +63,7 @@ Run the tests with `pytest`.
 ## How the model works
 
 1. **Free cash flow**: Operating cash flow − capital expenditure (from Yahoo's annual cash-flow statement), plus after-tax interest to approximate *unlevered* FCF.
-2. **Growth**: starts at the initial growth rate and fades linearly to the terminal growth rate by the final projection year.
+2. **Growth**: the initial rate (analyst consensus revenue growth for next year, or historical revenue CAGR) is held for `--hold-years`, then fades linearly to terminal growth by the final year.
 3. **Discount rate (WACC)**
    - Cost of equity = risk-free rate (10-yr Treasury, `^TNX`) + beta × equity risk premium
    - Cost of debt = interest expense ÷ total debt, after tax
@@ -57,6 +71,7 @@ Run the tests with `pytest`.
 4. **Terminal value**: Gordon growth model, `FCF_final × (1 + g) / (WACC − g)`
 5. **Equity value** = enterprise value − debt + cash, divided by shares outstanding
 6. **Sensitivity**: re-runs the valuation across a 5×5 grid of WACC and growth assumptions.
+7. **Reverse DCF**: solves for the growth rate that makes the model value equal today's price, and compares the market's EV/FCF multiple with the exit multiple the model assumes. For high-quality growth companies this is often more informative than the "overvalued" label: it tells you what you'd have to believe to buy at today's price.
 
 ## Project structure
 
